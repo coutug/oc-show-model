@@ -12,7 +12,7 @@
     "erasableSyntaxOnly": true,
     "allowImportingTsExtensions": true,
     "jsx": "preserve",
-    "jsxImportSource": "solid-js"
+    "jsxImportSource": "@opentui/solid"
   },
   "include": ["src", "tests"]
 }

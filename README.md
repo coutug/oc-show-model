@@ -14,7 +14,7 @@ Or pin a release in `opencode.json`:
 { "plugins": ["github:coutug/oc-show-model#v0.1.0"] }
 ```
 
-See [Releases](https://github.com/coutug/oc-show-model/releases) for available versions and `procedure.md` for how releases are cut.
+See [Releases](https://github.com/coutug/oc-show-model/releases) for available versions.
 
 ## How it works
 
