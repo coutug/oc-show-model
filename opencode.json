@@ -1,0 +1,4 @@
+{
+  "$schema": "https://opencode.ai/v2/config.schema.json",
+  "plugins": ["/home/gabriel/Documents/repo/oc-show-model"]
+}

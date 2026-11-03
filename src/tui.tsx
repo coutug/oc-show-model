@@ -3,8 +3,7 @@ import { ActualModelRpc } from "./rpc.ts"
 
 /**
  * TUI part: renders the actual OpenRouter model for the active session in the
- * prompt footer. Shows "NULL" while no model has been observed yet (temporary
- * placeholder for testing).
+ * prompt footer.
  */
 export default Plugin.define({
   id: "oc-show-model",
@@ -47,7 +46,7 @@ export default Plugin.define({
         if (input.sessionID === undefined) return null
         const model = state[input.sessionID]
         if (model === undefined) ensureLatest(input.sessionID)
-        return <text>{model === undefined ? "NULL" : `→ ${model}`}</text>
+        return model === undefined ? null : <text>→ {model}</text>
       },
     })
 
