@@ -1,0 +1,127 @@
+name: Dependabot release
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-release-main
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.event.pull_request.merged == true && github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.revision.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify merged commit and record tested revision
+        id: revision
+        env:
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          git merge-base --is-ancestor "$MERGE_SHA" HEAD
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc --noEmit
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          package-manager-cache: false
+
+      - name: Create or resume release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          TESTED_SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          marker="Dependabot-Release-PR: $PR_NUMBER"
+          commit="$(git log main -1 --format='%H' --grep="^$marker$")"
+
+          if [ -z "$commit" ]; then
+            if [ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]; then
+              echo '::error::main changed after tests; rerun this workflow.'
+              exit 1
+            fi
+            version="$(node -p 'require("./package.json").version')"
+            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo '::error::Automatic releases require a stable semantic version.'
+              exit 1
+            fi
+            latest="$(git tag --list 'v*' --sort=-version:refname | awk '/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/ && !found { print; found=1 }')"
+            if [ "$latest" != "v$version" ]; then
+              echo '::error::Current package version does not match the latest stable tag; resolve any incomplete release first.'
+              exit 1
+            fi
+            if [ "$(gh release view "$latest" --json isDraft --jq .isDraft)" != false ]; then
+              echo '::error::Previous release is a draft; resolve it before continuing.'
+              exit 1
+            fi
+            npm version patch --no-git-tag-version --ignore-scripts
+            version="$(node -p 'require("./package.json").version')"
+            node -e 'const p=require("./package.json"), l=require("./package-lock.json"); if(p.version!==l.version || p.version!==l.packages[""].version) process.exit(1)'
+            if [ -n "$(git status --porcelain --untracked-files=all | grep -vE '^ M (package.json|package-lock.json)$' || true)" ]; then
+              echo '::error::Unexpected changes during version bump.'
+              exit 1
+            fi
+            git add package.json package-lock.json
+            git -c core.hooksPath=/dev/null commit -m "chore: release v$version" -m "$marker"
+            commit="$(git rev-parse HEAD)"
+            git push --force-with-lease="refs/heads/main:$TESTED_SHA" origin HEAD:refs/heads/main
+          else
+            version="$(git show "$commit:package.json" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
+          fi
+
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            if [ "$(git rev-list -n 1 "$tag")" != "$commit" ]; then
+              echo "::error::Tag $tag points to another commit."
+              exit 1
+            fi
+          else
+            git tag "$tag" "$commit"
+            git push origin "refs/tags/$tag"
+          fi
+          if release="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$release" != false ]; then
+              echo "::error::Release $tag is a draft; resolve it before retrying."
+              exit 1
+            fi
+            echo "Release $tag already exists."
+          else
+            gh release create "$tag" --verify-tag --generate-notes
+          fi
