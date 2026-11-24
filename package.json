@@ -17,7 +17,7 @@
     "@opencode/plugin": "^2.3.0"
   },
   "devDependencies": {
-    "@opentui/core": "^0.8.4",
+    "@opentui/core": "^0.9.7",
     "@opentui/solid": "^0.9.2",
     "solid-js": "^1.9.19",
     "typescript": "^7.0.2"
